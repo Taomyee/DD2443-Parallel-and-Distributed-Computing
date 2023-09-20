@@ -1,4 +1,4 @@
-1public class MeasureMain {
+public class MeasureMain {
 
     public static void main(String [] args) {
         // Sorter name
@@ -58,6 +58,8 @@
                 return new ForkJoinPoolSort(threads);
             case "ParallelStream":
                 return new ParallelStreamSort(threads);
+            case "ThreadSort":
+                return new ThreadSort(threads);
             default:
                 return null;
         }
