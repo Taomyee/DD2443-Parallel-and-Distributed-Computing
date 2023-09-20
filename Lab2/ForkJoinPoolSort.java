@@ -1,6 +1,11 @@
 import java.util.concurrent.ForkJoinPool;
 import java.util.concurrent.RecursiveAction;
 
+/*
+ForkJoinPool (executor service) - good for recursive tasks and used for parallelizing computational tasks like sorting. 
+RecursiveAction - An instance of RecursiveAction calles fork() it will asynchronously execute compute)= in another thread of the ForkJoinPool
+*/
+
 public class ForkJoinPoolSort implements Sorter {
     public final int threads;
 
@@ -9,6 +14,16 @@ public class ForkJoinPoolSort implements Sorter {
     }
 
     public void sort(int[] arr) {
+        if(arr == null ){
+            throw new IllegalArgumentException("The array cannot be null");
+        }
+        if(threads <= 0 ){
+            throw new IllegalArgumentException("Must be at least 1 thread.");
+        }
+        if(arr.length <= 0){
+            System.out.println("Allready sorted since array is empty or consists of only one element");
+            return;
+        }
         ForkJoinPool pool = new ForkJoinPool(threads);
         pool.invoke(new Worker(arr, 0, arr.length - 1));
         pool.shutdown();
@@ -18,6 +33,8 @@ public class ForkJoinPoolSort implements Sorter {
         return threads;
     }
 
+    // RecursiveAction (Abstract class) is extended on the Worker class and overides
+    // its compute() method to imlement the mergeSort algorithm.
     private static class Worker extends RecursiveAction {
         private final int[] arr;
         private final int start;
@@ -31,21 +48,25 @@ public class ForkJoinPoolSort implements Sorter {
 
         @Override
         protected void compute() {
-            // TODO: Implement the sorting logic here.
-            // This is where you should apply your sorting algorithm.
-            mergeSort(arr, start, end);
-        }
+            //This compute() contains the logic for mergeSort
+            if (start < end) {
+                int middle = start + (end - start) / 2;
+                // Subtask for first and second halves
+                Worker leftArray = new Worker(arr, start, middle);
+                Worker rightArray = new Worker(arr, middle + 1, end);
 
-        private void mergeSort(int[] arr, int left, int right) {
-            if (left < right) {
-                int mid = left + (right - left) / 2;
+                // Fork the subtasks to run in parallel, it gets submitted to ForkJoinPool
+                // ForkJoinPool manages the available threads to perform the tasks in parrallel.
+                leftArray.fork();
+                rightArray.fork();
 
-                // Sort the first and second halves
-                mergeSort(arr, left, mid);
-                mergeSort(arr, mid + 1, right);
+                // wait for the subtasks to finish
+                leftArray.join();
+                rightArray.join();
 
                 // Merge the sorted halves
-                merge(arr, left, mid, right);
+                merge(arr, start, middle, end);
+
             }
         }
 

@@ -1,8 +1,10 @@
 import java.util.Arrays;
 
-public class test {
+public class Test {
     public static void main(String[] args) {
-        int[] unsortedArray = { 64, 25, 33, 90, 39, 100, 18, 12, 22, 11 };
+        //int[] unsortedArray = { 64, 25, 33, 90, 39, 100, 18, 12, 22, 11 };
+        int[] unsortedArray = { };
+        //int[] unsortedArray = { 64 };
         int[] threadOption = { 1, 2, 4, 8 };
 
         // Arguments input
