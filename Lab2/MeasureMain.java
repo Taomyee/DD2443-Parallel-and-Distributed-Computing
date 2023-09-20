@@ -58,6 +58,8 @@ public class MeasureMain {
                 return new ForkJoinPoolSort(threads);
             case "ParallelStream":
                 return new ParallelStreamSort(threads);
+            case "ThreadSort":
+                return new ThreadSort(threads);
             default:
                 return null;
         }
