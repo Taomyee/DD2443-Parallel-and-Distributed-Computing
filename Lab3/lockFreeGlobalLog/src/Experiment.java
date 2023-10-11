@@ -63,10 +63,10 @@ public class Experiment {
 
             // Create a discrete distribution with seed 42 such that,
             // A: p(0) = 1/10, p(1) = 1/10, p(2) = 8/10.
-            // Distribution ops = new Distribution.Discrete(42, new int[]{1, 1, 8});
+            Distribution ops = new Distribution.Discrete(42, new int[]{1, 1, 8});
 
             // B: p(0) = 1/2, p(1) = 1/2.
-            Distribution ops = new Distribution.Discrete(42, new int[]{5, 5, 0});
+            // Distribution ops = new Distribution.Discrete(42, new int[]{5, 5, 0});
 
             // Create a uniform distribution with seed 84 with values from [0, 100000).
             Distribution values = new Distribution.Uniform(84, 0, 1_00_000);

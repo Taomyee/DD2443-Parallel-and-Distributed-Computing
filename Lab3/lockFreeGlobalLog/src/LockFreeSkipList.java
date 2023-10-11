@@ -1,6 +1,7 @@
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
+import java.util.concurrent.ConcurrentLinkedDeque;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.atomic.AtomicMarkableReference;
 import java.util.concurrent.locks.Lock;
@@ -16,6 +17,8 @@ public class LockFreeSkipList<T extends Comparable<T>> implements LockFreeSet<T>
     private final List<Log.Entry> logEntries = new ArrayList<>();
 
     private final Lock globalLock = new ReentrantLock();
+
+    private final ConcurrentLinkedDeque<Log.Entry> globalLog = new ConcurrentLinkedDeque<>();
 
     public LockFreeSkipList() {
         for (int i = 0; i < head.next.length; i++) {
@@ -69,48 +72,43 @@ public class LockFreeSkipList<T extends Comparable<T>> implements LockFreeSet<T>
 
     @SuppressWarnings("unchecked")
     public boolean add(int threadId, T x) {
-        globalLock.lock();
-        try {
-            int topLevel = randomLevel();
-            int bottomLevel = 0;
-            Node<T>[] preds = (Node<T>[]) new Node[MAX_LEVEL + 1];
-            Node<T>[] succs = (Node<T>[]) new Node[MAX_LEVEL + 1];
-            while (true) {
-                boolean found = find(x, preds, succs);
-                addLogEntry("add", new Object[]{x}, !found);
-                if (found) {
-                    return false;
-                } else {
-                    Node<T> newNode = new Node(x, topLevel);
-                    // update newNode.next
-                    for (int level = bottomLevel; level <= topLevel; level++) {
-                        Node<T> succ = succs[level];
-                        newNode.next[level].set(succ, false);
-                    }
-                    Node<T> pred = preds[bottomLevel];
-                    Node<T> succ = succs[bottomLevel];
-                    // update preds.next
-                    if (!pred.next[bottomLevel].compareAndSet(succ, newNode, false, false)) {
-                        // addLogEntry("add", new Object[]{x}, true);
-                        continue;
-                    }
-                    for (int level = bottomLevel + 1; level <= topLevel; level++) {
-                        while (true) {
-                            pred = preds[level];
-                            succ = succs[level];
-                            // check if pred.next[level] is succs[level], if so, update pred.next[level] to newNode
-                            if (pred.next[level].compareAndSet(succ, newNode, false, false))
-                                break;
-                            // maybe other threads have already updated pred.next[level]
-                            // so we need to find the new pred and succ
-                            find(x, preds, succs);
-                        }
-                    }
-                    return true;
+        int topLevel = randomLevel();
+        int bottomLevel = 0;
+        Node<T>[] preds = (Node<T>[]) new Node[MAX_LEVEL + 1];
+        Node<T>[] succs = (Node<T>[]) new Node[MAX_LEVEL + 1];
+        while (true) {
+            boolean found = find(x, preds, succs);
+            addLogEntry("add", new Object[]{x}, !found);
+            if (found) {
+                return false;
+            } else {
+                Node<T> newNode = new Node(x, topLevel);
+                // update newNode.next
+                for (int level = bottomLevel; level <= topLevel; level++) {
+                    Node<T> succ = succs[level];
+                    newNode.next[level].set(succ, false);
                 }
+                Node<T> pred = preds[bottomLevel];
+                Node<T> succ = succs[bottomLevel];
+                // update preds.next
+                if (!pred.next[bottomLevel].compareAndSet(succ, newNode, false, false)) {
+                    // addLogEntry("add", new Object[]{x}, true);
+                    continue;
+                }
+                for (int level = bottomLevel + 1; level <= topLevel; level++) {
+                    while (true) {
+                        pred = preds[level];
+                        succ = succs[level];
+                        // check if pred.next[level] is succs[level], if so, update pred.next[level] to newNode
+                        if (pred.next[level].compareAndSet(succ, newNode, false, false))
+                            break;
+                        // maybe other threads have already updated pred.next[level]
+                        // so we need to find the new pred and succ
+                        find(x, preds, succs);
+                    }
+                }
+                return true;
             }
-        } finally {
-            globalLock.unlock();
         }
     }
 
@@ -120,44 +118,39 @@ public class LockFreeSkipList<T extends Comparable<T>> implements LockFreeSet<T>
 
     @SuppressWarnings("unchecked")
     public boolean remove(int threadId, T x) {
-        globalLock.lock();
-        try {
-            int bottomLevel = 0;
-            Node<T>[] preds = (Node<T>[]) new Node[MAX_LEVEL + 1];
-            Node<T>[] succs = (Node<T>[]) new Node[MAX_LEVEL + 1];
-            Node<T> succ;
-            while (true) {
-                boolean found = find(x, preds, succs);
-                if (!found) {
-                    addLogEntry("remove", new Object[]{x}, false);
-                    return false;
-                } else {
-                    Node<T> nodeToRemove = succs[bottomLevel];
-                    for (int level = nodeToRemove.topLevel; level >= bottomLevel + 1; level--) {
-                        boolean[] marked = {false};
-                        succ = nodeToRemove.next[level].get(marked);
-                        while (!marked[0]) {
-                            nodeToRemove.next[level].compareAndSet(succ, succ, false, true);
-                            succ = nodeToRemove.next[level].get(marked);
-                        }
-                    }
+        int bottomLevel = 0;
+        Node<T>[] preds = (Node<T>[]) new Node[MAX_LEVEL + 1];
+        Node<T>[] succs = (Node<T>[]) new Node[MAX_LEVEL + 1];
+        Node<T> succ;
+        while (true) {
+            boolean found = find(x, preds, succs);
+            if (!found) {
+                addLogEntry("remove", new Object[]{x}, false);
+                return false;
+            } else {
+                Node<T> nodeToRemove = succs[bottomLevel];
+                for (int level = nodeToRemove.topLevel; level >= bottomLevel + 1; level--) {
                     boolean[] marked = {false};
-                    succ = nodeToRemove.next[bottomLevel].get(marked);
-                    while (true) {
-                        boolean iMarkedIt = nodeToRemove.next[bottomLevel].compareAndSet(succ, succ, false, true);
-                        addLogEntry("remove", new Object[]{x}, iMarkedIt);
-                        succ = succs[bottomLevel].next[bottomLevel].get(marked);
-                        if (iMarkedIt) {
-                            find(x, preds, succs);
-                            return true;
-                        } else if (marked[0]) {
-                            return false;
-                        }
+                    succ = nodeToRemove.next[level].get(marked);
+                    while (!marked[0]) {
+                        nodeToRemove.next[level].compareAndSet(succ, succ, false, true);
+                        succ = nodeToRemove.next[level].get(marked);
+                    }
+                }
+                boolean[] marked = {false};
+                succ = nodeToRemove.next[bottomLevel].get(marked);
+                while (true) {
+                    boolean iMarkedIt = nodeToRemove.next[bottomLevel].compareAndSet(succ, succ, false, true);
+                    addLogEntry("remove", new Object[]{x}, iMarkedIt);
+                    succ = succs[bottomLevel].next[bottomLevel].get(marked);
+                    if (iMarkedIt) {
+                        find(x, preds, succs);
+                        return true;
+                    } else if (marked[0]) {
+                        return false;
                     }
                 }
             }
-        } finally {
-            globalLock.unlock();
         }
     }
 
@@ -166,36 +159,31 @@ public class LockFreeSkipList<T extends Comparable<T>> implements LockFreeSet<T>
     }
 
     public boolean contains(int threadId, T x) {
-        globalLock.lock();
-        try{
-            int bottomLevel = 0;
-            int key = x.hashCode();
-            boolean[] marked = {false};
-            Node<T> pred = head;
-            Node<T> curr = null;
-            Node<T> succ = null;
-            for (int level = MAX_LEVEL; level >= bottomLevel; level--) {
-                curr = pred.next[level].getReference();
-                while (true) {
+        int bottomLevel = 0;
+        int key = x.hashCode();
+        boolean[] marked = {false};
+        Node<T> pred = head;
+        Node<T> curr = null;
+        Node<T> succ = null;
+        for (int level = MAX_LEVEL; level >= bottomLevel; level--) {
+            curr = pred.next[level].getReference();
+            while (true) {
+                succ = curr.next[level].get(marked);
+                while (marked[0]) {
+                    curr = succ;
                     succ = curr.next[level].get(marked);
-                    while (marked[0]) {
-                        curr = succ;
-                        succ = curr.next[level].get(marked);
-                    }
-                    if (curr.value != null && x.compareTo(curr.value) < 0) {
-                        pred = curr;
-                        curr = succ;
-                    } else {
-                        break;
-                    }
+                }
+                if (curr.value != null && x.compareTo(curr.value) < 0) {
+                    pred = curr;
+                    curr = succ;
+                } else {
+                    break;
                 }
             }
-            boolean result = curr.value != null && x.compareTo(curr.value) == 0;
-            addLogEntry("contains", new Object[]{x}, result);
-            return result;
-        } finally {
-            globalLock.unlock();
         }
+        boolean result = curr.value != null && x.compareTo(curr.value) == 0;
+        addLogEntry("contains", new Object[]{x}, result);
+        return result;
     }
 
     private boolean find(T x, Node<T>[] preds, Node<T>[] succs) {
@@ -234,16 +222,14 @@ public class LockFreeSkipList<T extends Comparable<T>> implements LockFreeSet<T>
     }
 
     public Log.Entry[] getLog() {
-        // Convert the List of log entries to an array
-        System.out.println("Log size: " + logEntries.size());
-        return logEntries.toArray(new Log.Entry[0]);
+        return globalLog.toArray(new Log.Entry[0]);
     }
 
     // Helper method to add log entries
     private void addLogEntry(String method, Object[] args, Object returnValue) {
         long timestamp = System.nanoTime();
         Log.Entry entry = new Log.Entry(method, args, returnValue, timestamp);
-        logEntries.add(entry);
+        globalLog.add(entry);
     }
 
     public HashSet<Object> traverse() {
